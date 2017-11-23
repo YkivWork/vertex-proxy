@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:tls="http://www.mulesoft.org/schema/mule/tls"
+	xmlns:tcp="http://www.mulesoft.org/schema/mule/tcp"
+	xmlns:ws="http://www.mulesoft.org/schema/mule/ws"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit"
+	xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:smtp="http://www.mulesoft.org/schema/mule/smtp"
+	xmlns:expression-language="http://www.mulesoft.org/schema/mule/expression-language-gw"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" 
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" 
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:sfdc="http://www.mulesoft.org/schema/mule/sfdc" 
+	xmlns:context="http://www.springframework.org/schema/context" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+	xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd 
+http://www.mulesoft.org/schema/mule/tcp http://www.mulesoft.org/schema/mule/tcp/current/mule-tcp.xsd 
+http://www.mulesoft.org/schema/mule/ws http://www.mulesoft.org/schema/mule/ws/current/mule-ws.xsd 
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd 
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+http://www.mulesoft.org/schema/mule/smtp http://www.mulesoft.org/schema/mule/smtp/current/mule-smtp.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/sfdc http://www.mulesoft.org/schema/mule/sfdc/current/mule-sfdc.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/expression-language-gw http://www.mulesoft.org/schema/mule/expression-language-gw/current/mule-expression-language-gw.xsd
+">
+    <expression-language:property-placeholder location="${mule.env}.properties" ignore-resource-not-found="true" ignore-unresolvable="true" order="2"/>
+
+     <http:listener-config name="HTTPS_Listener_Configuration" protocol="HTTPS" host="0.0.0.0" port="${https.port}" doc:name="HTTP Listener Configuration">
+        <tls:context>
+            <tls:key-store path="keystore-${mule.env}.jks" password="password" keyPassword="![p['private.keystore.password']]"/>
+        </tls:context>
+    </http:listener-config>
+    
+    <http:request-config
+      name="http-request-config"
+      host="![p['implementation.host']]"
+      port="![p['implementation.port']]"
+      basePath="/"
+      protocol="HTTP" doc:name="HTTP Request Configuration">
+        <tcp:client-socket-properties connectionTimeout="30000"/>
+    </http:request-config>
+</mule>

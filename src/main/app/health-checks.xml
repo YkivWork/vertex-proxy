@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting"
+	xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns="http://www.mulesoft.org/schema/mule/core"
+xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata"
+xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw"
+xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+xmlns:http="http://www.mulesoft.org/schema/mule/http"
+xmlns:context="http://www.springframework.org/schema/context"
+xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+xmlns:spring="http://www.springframework.org/schema/beans"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd">
+
+    <flow name="healthCheckOverall">
+        <http:listener config-ref="HTTPS_Listener_Configuration" path="/api/v1/health-check" doc:name="HTTP"/>
+        
+        <enricher target="#[variable:vertexHealth]" doc:name="vertexHealth">
+            <flow-ref name="healthCheckVertex" doc:name="healthCheckVertex"/>
+        </enricher>
+        <logger level="DEBUG" doc:name="DEBUG"/>
+        <dw:transform-message doc:name="Overall Health">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+%var vertex=read(flowVars.vertexHealth, "application/json")
+%function compositeHealth(health) health reduce ('ok' when $$ == 'ok' and $ == 'ok' otherwise 'down')
+---
+{
+	health: compositeHealth([vertex.health]),
+	checks: {
+		vertex: {
+			path: '/vertex-health',
+			health: vertex.health,
+			(details: vertex.details) when vertex.details?
+		}
+	}
+}]]></dw:set-payload>
+            <dw:set-property propertyName="http.status"><![CDATA[%dw 1.0
+%output application/java
+%var vertex=read(flowVars.vertexHealth, "application/json")
+%function compositeHealth(health) health reduce ('ok' when $$ == 'ok' and $ == 'ok' otherwise 'down')
+---
+200 when compositeHealth([vertex.health]) == 'ok' otherwise 500]]></dw:set-property>
+        </dw:transform-message>
+        <logger message="Overall Health Check: #[dw('payload.health'), 'application/json']" level="INFO" doc:name="INFO"/>
+        <logger message="#[message.payloadAs(java.lang.String)]" level="INFO" doc:name="DEBUG"/>
+    </flow>
+
+    <flow name="healthCheckVertex">
+        <dw:transform-message doc:name="Overall Health">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/xml
+%namespace vtx urn:vertexinc:o-series:tps:6:0
+%namespace soap http://schemas.xmlsoap.org/soap/envelope/
+---
+{
+  soap#Envelope: {
+    soap#Header: {},
+    soap#Body: {
+      vtx#VertexEnvelope: {
+        vtx#Login: {
+          vtx#UserName: p("vertex.username"),
+          vtx#Password: p("vertex.password")
+        }
+      }
+    }
+  }
+}]]></dw:set-payload>
+        </dw:transform-message>
+
+<logger message="Sending this to ![p['implementation.host']] ![p['implementation.port']] ![p['implementation.path']] body: #[message.payloadAs(java.lang.String)]" level="INFO"/>
+
+        <http:request config-ref="http-request-config" path="/vertex-ws/services/VertexVersion60" method="POST" doc:name="HTTP">
+            <http:request-builder>
+                <http:header headerName="SOAPAction" value="&quot;&quot;"/>
+                <http:header headerName="Content-Type" value="text/xml;charset=UTF-8"/>
+            </http:request-builder>
+        </http:request>
+<logger message="Received from Vertex: #[message] #[message.payloadAs(java.lang.String)]" level="INFO"/>
+
+        <dw:transform-message doc:name="Parse Response">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload
+]]></dw:set-payload>
+        </dw:transform-message>
+        <choice doc:name="check key, action both present">
+            <when expression="#[payload['error_code'] == empty]">
+                <logger message="Connection to Vertex is healthy." level="INFO" doc:name="Logger"/>
+            </when>
+            <otherwise>
+                <scripting:component doc:name="exceptionNoKeyAction">
+                    <scripting:script engine="Groovy">throw new RuntimeException('Did not get a healthy response from Vertex.')</scripting:script>
+                </scripting:component>
+            </otherwise>
+        </choice>
+
+
+        <dw:transform-message doc:name="Health">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	health: 'ok',
+	details: 'Connection to Vertex is healthy'
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <logger message="Vertex Health Check: #[dw('payload.health'), 'application/json']" level="DEBUG" doc:name="DEBUG"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <set-variable variableName="errorDetail" value="There is a problem connecting to Vertex" doc:name="errorDetail"/>
+            <dw:transform-message doc:name="Unhealthy">
+                <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	health: 'failed',
+	details: flowVars.errorDetail
+}]]></dw:set-payload>
+                <dw:set-property propertyName="http.status"><![CDATA[%dw 1.0
+%output application/java
+---
+500]]></dw:set-property>
+            </dw:transform-message>
+            <logger message="Vertex Health Check: #[dw('payload.health'), 'application/json']" level="DEBUG" doc:name="DEBUG"/>
+        </catch-exception-strategy>
+    </flow>
+</mule>
